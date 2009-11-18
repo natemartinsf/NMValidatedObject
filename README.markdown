@@ -59,12 +59,14 @@ See the included tests for details on how to use it.
     *   hasMany keys should be the lowercase plural of the target classname
     *   belongsTo keys should be the lowercase singular of the target classname
 *   The conventions assume simplistic pluralization (add or remove an 's'). If the acutal plurilization is more difficult than that, you should use the generic relationship methods.
+*   Right now, errors during validation do not propagate to the user, instead, the property just reverts to the previous value.
 
 ## Todo ##
 
 *   More options for validation, such as:
     *   Validate only on create, or only on update
     *   More flexible convenience methods (min with no max, etc)
+*   Error propagation, so the user can be notified when a validation fails.
 *   Persistence
     *   Plugin based system to persist to multiple backends
         * ActiveRecord
