@@ -7,6 +7,7 @@
 //
 
 @import <Foundation/CPObject.j>
+@import "NMValidatedObjectContext.j"
 
 
 // Relationship  types
@@ -29,6 +30,12 @@ NMValidationTypePresence					= @"_validatePresenceOfKey:info:";
 	CPMutableDictionary _observedKeys;
 	CPMutableDictionary _validations;
 	BOOL				        _autoPersists				@accessors(property=autoPersists);
+	BOOL                _creating;
+	CPString  backendClass  @accessors;
+	CPString  created_at    @accessors;
+	CPString  updated_at    @accessors;
+	int       id            @accessors;
+	NMValidatedObjectContext  context @accessors;
 }
 
 //TODO:
@@ -44,6 +51,9 @@ NMValidationTypePresence					= @"_validatePresenceOfKey:info:";
 		_relationships = [[CPMutableDictionary alloc] init];
 		_observedKeys = [[CPMutableDictionary alloc] init];
 		_validations = [[CPMutableDictionary alloc] init];
+		_creating = false;
+    var string = [[CPString alloc] init];
+    backendClass = [self className];
 	}
 	return self;
 }
@@ -60,6 +70,7 @@ NMValidationTypePresence					= @"_validatePresenceOfKey:info:";
 	    validationList = [_validations objectForKey:aKeyPath],
 		  infoDict;
   
+  CPLog(@"observing value");
   //Setup dictionary to pass to validation method
   //Add the changes that happened to this key
 	infoDict = [[CPMutableDictionary alloc] init];
@@ -88,6 +99,9 @@ NMValidationTypePresence					= @"_validatePresenceOfKey:info:";
 					        CPKeyValueObservingOptionOld)
 				context:	nil];
 				
+			//Add a notification that the validation faile.
+			//[[CPNotificationCenter defaultCenter] ]
+				
 			return;
 		}
 	}
@@ -98,11 +112,16 @@ NMValidationTypePresence					= @"_validatePresenceOfKey:info:";
 	{
 		[self performSelector: [relationship objectForKey:@"selector"] withObject:changes withObject:aKeyPath];
 	}
+	var changed = [changes objectForKey:@"CPKeyValueChangeNewKey"] != [changes objectForKey:@"CPKeyValueChangeOldKey"];
+	if(!_creating && changed){
+	  [context updateKey:aKeyPath forRegisteredObject:self];
+	}
+	
 }
 
 
 //Setup KVO on the key, if it hasn't already been
--(void)_observeKey:(CPString)key
+-(void)observeKey:(CPString)key
 {
 	if([_observedKeys objectForKey:key] == nil)
 	{
@@ -138,7 +157,7 @@ NMValidationTypePresence					= @"_validatePresenceOfKey:info:";
 {
 
 	//Observe keypath if we aren't already
-	[self _observeKey:key];
+	[self observeKey:key];
 	//create selector for normalizing
 	var selectorString = @"_normalize"+type+@"WithChange:keyPath:";
 		  selector = CPSelectorFromString(selectorString);
@@ -519,3 +538,32 @@ var options = [[CPDictionary alloc] init];
 }
 
 @end
+
+
+@implementation NMValidatedObject (Persistence)
+
++(id)newValidatedObjectWithJSON:(id)JSONobject
+{
+
+  var myClass   = CPClassFromString([self className]),
+      newObject = [[myClass alloc] init],
+      backendName = [newObject backendClass],
+      dataObject = JSONobject[backendName];
+      
+  _creating=true;
+      
+  for (var property in dataObject){
+    
+    [newObject setValue:dataObject[property] forKey:property];
+  }
+  
+  _creating=false;
+  
+  return newObject;
+}
+
+
+
+@end
+
+
