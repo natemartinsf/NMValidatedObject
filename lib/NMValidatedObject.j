@@ -23,6 +23,69 @@ NMValidationTypeLength						= @"_validateLengthOfKey:info:";
 NMValidationTypeNumericality			= @"_validateNumericalityOfKey:info:";
 NMValidationTypePresence					= @"_validatePresenceOfKey:info:";
 
+NMValidatedObjectLoadedNotification = @"NMValidatedObjectLoadedNotification";
+
+
+@implementation NMValidatedObjectProxy : CPProxy
+{
+  NMValidatedObject _realObject;
+  BOOL              isFault;
+  
+}
+
+-(id)initWithValidatedObject:(NMValidatedObject)theObject
+{
+  _realObject = theObject;
+  isFault = ![_realObject _loaded];
+  [[CPNotificationCenter defaultCenter] addObserver:self selector:@selector(unfault) name:NMValidatedObjectLoadedNotification object:_realObject];
+  
+  return self;
+}
+
+
++ (BOOL)respondsToSelector:(SEL)aSelector
+{
+    return [[_realObject class] respondsToSelector:aSelector];
+}
+
+-(void)unfault
+{
+  isFault = ![_realObject _loaded];
+}
+
+- (CPMethodSignature)methodSignatureForSelector:(SEL)selector
+{
+  // does the delegate respond to this selector?
+  var selectorString = CPStringFromSelector(selector);
+
+  if ([_realObject respondsToSelector:selector])
+  {
+    // yes, return the delegate's method signature
+    return YES;
+  } else {
+    // no, return whatever CPObject would return
+    return [CPObject methodSignatureForSelector: selector];
+  }	
+}
+
+
+- (id)forwardInvocation:(CPInvocation)anInvocation
+{  
+  
+  //Some methods get automatically forwarded:
+  if(!isFault || [_realObject _loading] || [_realObject _loaded] || ([anInvocation selector] == @"observeKey:") || ([anInvocation selector] == @"setUrl:") || ([anInvocation selector] == @"setContext:"))
+  {
+    [anInvocation invokeWithTarget:_realObject];
+    return [anInvocation returnValue];
+  }
+  var returnString = @"loading...";
+  [anInvocation setReturnValue:returnString];
+  [_realObject load];
+  return returnString;
+}
+
+
+@end
 
 @implementation NMValidatedObject : CPObject
 {
@@ -30,8 +93,10 @@ NMValidationTypePresence					= @"_validatePresenceOfKey:info:";
 	CPMutableDictionary _observedKeys;
 	CPMutableDictionary _validations;
 	BOOL				        _autoPersists				@accessors(property=autoPersists);
-	BOOL                _creating;
+	BOOL                _loaded             @accessors(readonly);
+	BOOL                _loading            @accessors(readonly);
 	CPString  backendClass  @accessors;
+	CPURL     url           @accessors;
 	CPString  created_at    @accessors;
 	CPString  updated_at    @accessors;
 	int       id            @accessors;
@@ -46,17 +111,64 @@ NMValidationTypePresence					= @"_validatePresenceOfKey:info:";
 -(id)init
 {
 	self = [super init];
+	var proxy;
 	if(self)
 	{
+	  //CPLog(@"Initing validated object: %@", self);
+	  //CPLog(@"I am a: %@", [self className]);
 		_relationships = [[CPMutableDictionary alloc] init];
 		_observedKeys = [[CPMutableDictionary alloc] init];
 		_validations = [[CPMutableDictionary alloc] init];
-		_creating = false;
+		_loading = false;
+		_loaded = false;
     var string = [[CPString alloc] init];
     backendClass = [self className];
+    proxy = [[NMValidatedObjectProxy alloc] initWithValidatedObject:self];
 	}
-	return self;
+	if(proxy)
+	{
+	  return proxy;
+	} 
+	else
+	{
+	  return self;
+	}
 }
+
+-(void)load 
+{
+  if(_loaded|| _loading || !url || !context)
+  {
+    return;
+  }
+  _loading=YES;
+  var selectorString = @"_loadData:";
+		  selector = CPSelectorFromString(selectorString);
+  
+  [context startJSONGETRequestForURL:url delegate:self callback:selector];
+}
+
+-(void)_loadData:(CPObject)data
+{
+  var fetchData = [CPDictionary dictionaryWithJSObject:data recursively:YES], 
+      enumerator = [fetchData objectEnumerator],
+      properties = [enumerator nextObject],
+      propertyEnumerator = [properties keyEnumerator],
+      propertyKey;
+  
+  //Might need to abstract this for different backends?
+      
+  while(propertyKey = [propertyEnumerator nextObject])
+  {
+    [self setValue:[properties objectForKey:propertyKey] forKey:propertyKey];
+  }
+  CPLog(@"Finished loading object...");
+  _loading=NO;
+  _loaded=YES;
+  [[CPNotificationCenter defaultCenter] postNotificationName:NMValidatedObjectLoadedNotification object:self];
+  
+}
+
 
 
 //Method that is called whenever an observed key changes.
@@ -70,7 +182,6 @@ NMValidationTypePresence					= @"_validatePresenceOfKey:info:";
 	    validationList = [_validations objectForKey:aKeyPath],
 		  infoDict;
   
-  CPLog(@"observing value");
   //Setup dictionary to pass to validation method
   //Add the changes that happened to this key
 	infoDict = [[CPMutableDictionary alloc] init];
@@ -113,7 +224,7 @@ NMValidationTypePresence					= @"_validatePresenceOfKey:info:";
 		[self performSelector: [relationship objectForKey:@"selector"] withObject:changes withObject:aKeyPath];
 	}
 	var changed = [changes objectForKey:@"CPKeyValueChangeNewKey"] != [changes objectForKey:@"CPKeyValueChangeOldKey"];
-	if(!_creating && changed){
+	if(!_loading && changed){
 	  [context updateKey:aKeyPath forRegisteredObject:self];
 	}
 	
@@ -541,7 +652,7 @@ var options = [[CPDictionary alloc] init];
 
 
 @implementation NMValidatedObject (Persistence)
-
+/*
 +(id)newValidatedObjectWithJSON:(id)JSONobject
 {
 
@@ -560,7 +671,7 @@ var options = [[CPDictionary alloc] init];
   _creating=false;
   
   return newObject;
-}
+}*/
 
 
 
