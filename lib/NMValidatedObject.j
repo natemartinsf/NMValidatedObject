@@ -73,11 +73,13 @@ NMValidatedObjectLoadedNotification = @"NMValidatedObjectLoadedNotification";
 {  
   
   //Some methods get automatically forwarded:
-  if(!isFault || [_realObject _loading] || [_realObject _loaded] || ([anInvocation selector] == @"observeKey:") || ([anInvocation selector] == @"setUrl:") || ([anInvocation selector] == @"setContext:"))
+  if(!isFault || [_realObject _loaded] || ([anInvocation selector] == @"observeKey:") || ([anInvocation selector] == @"setUrl:") || ([anInvocation selector] == @"setContext:")|| ([anInvocation selector] == @"setValue:ForKey:"))
   {
     [anInvocation invokeWithTarget:_realObject];
     return [anInvocation returnValue];
   }
+  
+  CPLog(@"not forwarding...");
   var returnString = @"loading...";
   [anInvocation setReturnValue:returnString];
   [_realObject load];
