@@ -11,7 +11,7 @@ NMValidatedObjectContextLoadedNotification = @"NMValidatedObjectContextLoadedNot
   CPDictionary  classesForPath  @accessors;
   CPDictionary  fetchedObjects  @accessors;
   CPDictionary  fetches         @accessors;
-  CPArray       registeredObjects @accessors;
+  CPDictionary  registeredObjects @accessors;
 }
 
 - (id)initWithBaseURL:(CPURL)theBaseURL
@@ -20,7 +20,7 @@ NMValidatedObjectContextLoadedNotification = @"NMValidatedObjectContextLoadedNot
   {
     managedClasses = [[CPDictionary alloc] init];
     classesForPath = [[CPDictionary alloc] init];
-    registeredObjects = [[CPArray alloc] init];
+    registeredObjects = [[CPDictionary alloc] init];
     fetchedObjects = [[CPDictionary alloc] init];
     fetches         = [[CPDictionary alloc] init];
     baseURL = theBaseURL;
@@ -31,6 +31,29 @@ NMValidatedObjectContextLoadedNotification = @"NMValidatedObjectContextLoadedNot
   }
   return self;
 }
+
+-(id)getOrCreateValidatedObjectWithID:(int)objectId ClassName:(CPString)className
+{
+  var url = [managedClasses objectForKey:className] + "/"+objectId
+  return [self getOrCreateValidatedObjectWithURL:url ClassName:className];
+}
+
+-(id)getOrCreateValidatedObjectWithURL:(CPURL)theUrl ClassName:(CPString)className
+{
+  if([registeredObjects containsKey:theUrl])
+  {
+    return [registeredObjects objectForKey:theUrl];
+  }
+  else 
+  {
+    var newObject = [[CPClassFromString(className) alloc] init];
+    [newObject setUrl:[CPURL URLWithString:theUrl]];
+    [newObject setContext:self];
+    [registeredObjects setObject:newObject forKey:theUrl];
+    return newObject;
+  }
+}
+
 
 -(CPArray)objectsForFetchIdentifier:(CPString)identifier
 {

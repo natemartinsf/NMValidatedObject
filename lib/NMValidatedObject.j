@@ -8,6 +8,7 @@
 
 @import <Foundation/CPObject.j>
 @import "NMValidatedObjectContext.j"
+//@import "NMCompany.j"
 
 
 // Relationship  types
@@ -24,6 +25,34 @@ NMValidationTypeNumericality			= @"_validateNumericalityOfKey:info:";
 NMValidationTypePresence					= @"_validatePresenceOfKey:info:";
 
 NMValidatedObjectLoadedNotification = @"NMValidatedObjectLoadedNotification";
+
+function _invocationIsAttribute(anInvocation)
+{
+  return ![NMValidatedObject instancesRespondToSelector:[anInvocation selector]] || [anInvocation selector] == @"valueForKey:";
+}
+
+function _invocationIsRelationship(anInvocation, _real)
+{
+  var kvcWithRelationship = ([anInvocation selector] == @"valueForKey:") && [[_real _relationships] containsKey:[anInvocation argumentAtIndex:2]];
+  return _invocationIsAttribute(anInvocation) && ([[_real _relationships] containsKey:[anInvocation selector]] || kvcWithRelationship);
+}
+
+function _getClassFromInvocation(anInvocation, _real)
+{
+  var theKey;
+  if ([anInvocation selector]== @"valueForKey:")
+  {
+    theKey = [anInvocation argumentAtIndex:2];
+  }
+  else
+  {
+    theKey = [anInvocation selector];
+  }
+  return CPClassFromString([[[_real _relationships] objectForKey:theKey] objectForKey:@"className"]);
+}
+
+
+
 
 
 @implementation NMValidatedObjectProxy : CPProxy
@@ -71,19 +100,101 @@ NMValidatedObjectLoadedNotification = @"NMValidatedObjectLoadedNotification";
 
 - (id)forwardInvocation:(CPInvocation)anInvocation
 {  
+  //debugger;
+  //If the object is still a fault, then we need to return a loading message, and possibly start loading the real object
+  if(isFault)
+  {
+
+    //Are we trying to access a key that is a relationship? Then we need to create the other object (if neccecary) and pass on the message
+    if(_invocationIsRelationship(anInvocation, _realObject))
+    {
+      CPLog(@"tried to access a relationship!");
+      //We can create an object, since it will get replaced when the real object loads
+      var objectClass = _getClassFromInvocation(anInvocation, _realObject)
+      CPLog(@"going to create a "+objectClass);
+      var fakeObject = [[objectClass alloc] init];
+      //var fakeObject = [[NMCompany alloc] init];
+      CPLog(@"Returning a fake object : "+fakeObject);
+      debugger;
+      [anInvocation setReturnValue:fakeObject];
+      return fakeObject;
+    }
+    else
+    {
+      //If this is an attribute, we should start loading the object and return fake
+      if(_invocationIsAttribute(anInvocation))
+      {
+        [_realObject load];
+        var returnString = @"loading...";
+        [anInvocation setReturnValue:returnString];
+        return returnString;
+      }
+      //Anything else is a real method, and should fall through.
+    }
+    
+  }
+  //If we fall through, or are not fault, we can just pass the method on.
+  [anInvocation invokeWithTarget:_realObject];
+  return [anInvocation returnValue];
   
+  
+ /* if(isFault)
+  {
+    //CPLog(@"self" + _realObject + " selector: "+[anInvocation selector]);
+    if(![NMValidatedObject instancesRespondToSelector:[anInvocation selector]] || [anInvocation selector] == @"valueForKey:")
+    {
+      //CPLog(@"starting load...")
+      [_realObject load];
+    }
+    if(([anInvocation selector] == @"valueForKey:" && ![[_realObject _relationships] containsKey:[anInvocation selector]])|| (![NMValidatedObject instancesRespondToSelector:[anInvocation selector]] && ![[_realObject _relationships] containsKey:[anInvocation selector]]))
+    {
+      //CPLog(@"returning fake");
+      var returnString = @"loading...";
+      [anInvocation setReturnValue:returnString];
+      return returnString;
+    }
+  }
+  //CPLog(@"returning real");
+  [anInvocation invokeWithTarget:_realObject];
+  return [anInvocation returnValue];
+  */
+  
+  /*
   //Some methods get automatically forwarded:
-  if(!isFault || [_realObject _loaded] || ([anInvocation selector] == @"observeKey:") || ([anInvocation selector] == @"setUrl:") || ([anInvocation selector] == @"setContext:")|| ([anInvocation selector] == @"setValue:ForKey:"))
+  //if(!isFault || [_realObject _loaded] || ([anInvocation selector] == @"observeKey:") || ([anInvocation selector] == @"setUrl:") || ([anInvocation selector] == @"setContext:")|| ([anInvocation selector] == @"setValue:ForKey:"))
+  if(isFault && ![_realObject _loaded] && ![NMValidatedObject instancesRespondToSelector:[anInvocation selector]])
+  {
+    //if(([anInvocation selector] == @"valueForKey:") || ([anInvocation selector] == @"valueForKeyPath:"))
+    if(![[_realObject _relationships] containsKey:[anInvocation selector]])
+    {
+      //CPLog(@"Not Forwarding: "+[anInvocation selector]);
+      var returnString = @"loading...";
+      [anInvocation setReturnValue:returnString];
+      [_realObject load];
+      return returnString;
+    }
+    else
+    {
+      [_realObject load];
+      
+      //debugger;
+    }
+  }
+  //CPLog(@"Forwarding: "+[anInvocation selector]);
+  
+  [anInvocation invokeWithTarget:_realObject];
+  return [anInvocation returnValue];
+  
+  */
+  /*if(!isFault || ([anInvocation selector] != @"valueForKey:") || ([anInvocation selector] != @"valueForKeyPath:") || [_realObject _loaded] || [NMValidatedObject instancesRespondToSelector:[anInvocation selector]])
   {
     [anInvocation invokeWithTarget:_realObject];
     return [anInvocation returnValue];
   }
-  
-  CPLog(@"not forwarding...");
   var returnString = @"loading...";
   [anInvocation setReturnValue:returnString];
   [_realObject load];
-  return returnString;
+  return returnString;*/
 }
 
 
@@ -91,7 +202,7 @@ NMValidatedObjectLoadedNotification = @"NMValidatedObjectLoadedNotification";
 
 @implementation NMValidatedObject : CPObject
 {
-	CPMutableDictionary _relationships;
+	CPMutableDictionary _relationships      @accessors(readonly);
 	CPMutableDictionary _observedKeys;
 	CPMutableDictionary _validations;
 	BOOL				        _autoPersists				@accessors(property=autoPersists);
@@ -143,6 +254,8 @@ NMValidatedObjectLoadedNotification = @"NMValidatedObjectLoadedNotification";
   {
     return;
   }
+  CPLog(@"Loading: "+self);
+  
   _loading=YES;
   var selectorString = @"_loadData:";
 		  selector = CPSelectorFromString(selectorString);
@@ -162,15 +275,35 @@ NMValidatedObjectLoadedNotification = @"NMValidatedObjectLoadedNotification";
       
   while(propertyKey = [propertyEnumerator nextObject])
   {
+    
     [self setValue:[properties objectForKey:propertyKey] forKey:propertyKey];
   }
-  CPLog(@"Finished loading object...");
   _loading=NO;
   _loaded=YES;
   [[CPNotificationCenter defaultCenter] postNotificationName:NMValidatedObjectLoadedNotification object:self];
   
 }
 
+
+- (void)setValue:(id)aValue forUndefinedKey:(CPString)aKey
+{
+  if([aKey substringFromIndex:[aKey length]-3]==@"_id")
+  {
+    var realKey = [aKey substringToIndex:[aKey length]-3],
+        className = [[_relationships objectForKey:realKey] objectForKey:@"className"];
+        
+    
+    var otherObject = [context getOrCreateValidatedObjectWithID:aValue ClassName:[className]];
+    
+    
+    
+    [self setValue:otherObject forKey:realKey];
+  }
+  else
+  {
+    [super setValue:aValue forUndefinedKey:aKey];
+  }
+}
 
 
 //Method that is called whenever an observed key changes.
@@ -290,6 +423,9 @@ NMValidatedObjectLoadedNotification = @"NMValidatedObjectLoadedNotification";
   //We assume that the inverse key is the simple plural of the keyname.
   //If this is not true, define the relationship manually with
   //addRelationshipForKey:type:inverseKey:className:
+  
+  //How to handle automatic capitalization, etc, witn class prefixes?
+  
 	var capitalizedKey = [self _capitalizedKey:key],
 		  inverseKey = [self _lowercaseKey:[self className]]+"s";
 	
@@ -380,38 +516,44 @@ NMValidatedObjectLoadedNotification = @"NMValidatedObjectLoadedNotification";
 		  oldObject,
 		  inverseArray;
 		  
-  if([newObject class] != CPNull)
+  //if([newObject class] != CPNull )
+  if([newObject _loaded])
   {
-    //The key has been set to a new object.
-    //Let's get the inverse array
-    inverseArray = [newObject valueForKey:theInverseKey];
-    //So let's add ourselves to the object's array if needed.
-    if(![inverseArray containsObject:self])
+    if([newObject className] == [[_relationships objectForKey:aKeyPath] objectForKey:@"className"])
     {
-      //We're not in the array, so let's add it.
-      
-      //We're not using the KVC accessor, but that should be ok because we don't want a loop
-      [inverseArray addObject:self];
+      CPLog(@"normalizing with className: "+[newObject className]);
+      //The key has been set to a new object.
+      //Let's get the inverse array
+      inverseArray = [newObject valueForKey:theInverseKey];
+      //So let's add ourselves to the object's array if needed.
+      if(![inverseArray containsObject:self])
+      {
+        //We're not in the array, so let's add it.
+
+        //We're not using the KVC accessor, but that should be ok because we don't want a loop
+        [inverseArray addObject:self];
+      }
+    }
+    else if([oldObject class] != CPNull)
+    {
+      //There's an old key
+      //Let's get the inverse array
+      inverseArray = [oldObject valueForKey:theInverseKey];
+      //Let's remove ourselves from the array if needed
+      if([inverseArray containsObject:self])
+      {
+        //We're in the array, so let's remove ourselves.
+        //WE're not using the KVC accesssor, but that should be ok because we don't want a loop
+        [inverseArray removeObject:self];
+      }
+    }
+    else
+    {
+      //We don't have a new or an old key!
+      CPLog.error("normalizing belongsTo relationship with no new or old key")
     }
   }
-  else if([oldObject class] != CPNull)
-  {
-    //There's an old key
-    //Let's get the inverse array
-    inverseArray = [oldObject valueForKey:theInverseKey];
-    //Let's remove ourselves from the array if needed
-    if([inverseArray containsObject:self])
-    {
-      //We're in the array, so let's remove ourselves.
-      //WE're not using the KVC accesssor, but that should be ok because we don't want a loop
-      [inverseArray removeObject:self];
-    }
-  }
-  else
-  {
-    //We don't have a new or an old key!
-    CPLog.error("normalizing belongsTo relationship with no new or old key")
-  }
+  
 
 }
 

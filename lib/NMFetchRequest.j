@@ -32,12 +32,16 @@
       
   while(url=[enumerator nextObject])
   {
+    var result = [context getOrCreateValidatedObjectWithURL:url ClassName:validatedObjectClass];
+    /*
     newObject = [[CPClassFromString(validatedObjectClass) alloc] init];
     [newObject setUrl:[CPURL URLWithString:url]];
-    [newObject setContext:context];
+    [newObject setContext:context];*/
     
-    [results addObject:newObject];
+    [results addObject:result];
   }
+  
+  //Should I return the results back the original calling object here, or cache them in the context and let the original object pull them?
   
   [delegate performSelector:callback withObject:results];
   
